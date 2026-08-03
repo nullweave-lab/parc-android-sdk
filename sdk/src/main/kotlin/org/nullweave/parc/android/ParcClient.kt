@@ -12,11 +12,11 @@ public class ParcClient(
     public suspend fun attest(profile: String): VerificationResult {
         require(profile.isNotBlank()) { "profile must not be blank" }
 
-        val challenge = challengeProvider.requestChallenge(profile)
+        val suppliedChallenge = challengeProvider.requestChallenge(profile)
+        val challenge = suppliedChallenge.copy(value = suppliedChallenge.value.copyOf())
         validateChallenge(challenge, profile)
 
         val startedAt = clock.nowEpochMillis()
-        val context = CollectionContext(challenge, startedAt)
         val capabilities = ArrayList<Capability>(evidenceProviders.size)
         val evidence = ArrayList<EvidenceRecord>(evidenceProviders.size)
 
@@ -33,7 +33,11 @@ public class ParcClient(
 
             when (capability.status) {
                 CapabilityStatus.AVAILABLE -> {
-                    evidence += runCatching { provider.collect(context) }
+                    val providerContext = CollectionContext(
+                        challenge = challenge.copy(value = challenge.value.copyOf()),
+                        startedAtEpochMillis = startedAt,
+                    )
+                    evidence += runCatching { provider.collect(providerContext) }
                         .getOrElse {
                             EvidenceRecord(
                                 id = "${provider.capabilityName}:collection",
@@ -60,7 +64,7 @@ public class ParcClient(
 
         val unsigned = proofEncoder.encode(
             ProofInput(
-                challenge = challenge,
+                challenge = challenge.copy(value = challenge.value.copyOf()),
                 proofId = proofIdGenerator.newProofId(),
                 startedAtEpochMillis = startedAt,
                 completedAtEpochMillis = completedAt,
