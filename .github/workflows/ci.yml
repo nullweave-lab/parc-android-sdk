@@ -76,7 +76,11 @@ jobs:
         with:
           gradle-version: "8.13"
       - name: Build application and instrumentation APKs
-        run: gradle :sample:assembleDebug :sample:assembleDebugAndroidTest
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :sample:assembleDebug :sample:assembleDebugAndroidTest --stacktrace --info \
+            2>&1 | tee instrumentation-build.log
       - name: Create and boot Android emulator
         shell: bash
         run: |
@@ -141,6 +145,7 @@ jobs:
         with:
           name: parc-android-emulator-jni-report
           path: |
+            instrumentation-build.log
             install-app.txt
             install-test.txt
             instrumentation-list.txt
