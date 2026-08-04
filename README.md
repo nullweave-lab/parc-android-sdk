@@ -1,39 +1,42 @@
 # parc-android-sdk
 
-Experimental Android SDK contract for requesting challenges, collecting public evidence, constructing a PARC payload, signing it through an injected adapter, submitting it to a verifier, and returning the verifier's structured result.
+Android SDK contracts with two runnable Android applications.
 
-> **Status:** Alpha. No production cryptographic container or network protocol is frozen.
+## Direct Keystore/verifier demo (`app`)
 
-## Current platform baseline
+Requests a live challenge, creates or loads a P-256 key in `AndroidKeyStore`, gathers an explicit Android/key summary, signs the exact proof payload with `SHA256withECDSA`, submits it to `parc-verifier-server`, displays the result, and can replay the identical request.
 
-- Android library module
+```sh
+gradle :app:assembleDebug
+```
+
+See [ANDROID-DEMO.md](ANDROID-DEMO.md).
+
+## Control-plane sample (`sample`)
+
+Demonstrates registration, client credentials, protected device-secret storage, evidence collection, and a control-plane attestation decision flow.
+
+```sh
+gradle :sample:assembleDebug
+```
+
+See [RUNNABLE-CONTROL-PLANE.md](RUNNABLE-CONTROL-PLANE.md).
+
+## SDK module
+
+The `sdk` module contains the challenge, evidence, proof, signing, transport, verifier-result, and control-plane contracts used by both applications.
+
+## Platform baseline
+
 - `minSdk 26`
 - `compileSdk 36`
 - JDK 17
 - AGP 8.13.2 / Gradle 8.13
 - Kotlin 2.3.0
 
-The initial module is pure Kotlin and therefore ABI-neutral. Native evidence providers are optional adapters supplied by `parc-native-probes`; no native binary is bundled in this PR.
+## Current boundary
 
-## Public API boundaries
-
-The SDK defines interfaces for:
-
-- challenge acquisition;
-- capability and evidence providers;
-- proof encoding;
-- proof signing;
-- proof transport;
-- structured verifier responses;
-- cancellation-aware orchestration through `suspend` functions.
-
-It does not implement private rules, hidden probes, business authorization, production endpoints, certificate trust stores, or unreviewed anti-analysis behavior.
-
-## Build
-
-```sh
-gradle :sdk:testDebugUnitTest
-```
+Both APKs are built by CI. The direct demo performs Android Keystore signing and real HTTP submission. The reference verifier checks ES256 possession and protocol mechanics; full Android key-attestation extension validation, root trust, revocation, Verified Boot appraisal, and production TLS remain incomplete.
 
 ## License
 
