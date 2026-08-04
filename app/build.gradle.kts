@@ -17,6 +17,10 @@ android {
         versionName = "0.1.0-alpha.1"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     buildTypes {
         debug { isMinifyEnabled = false }
         release {
