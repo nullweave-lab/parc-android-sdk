@@ -12,7 +12,7 @@ public class AndroidRuntimeEvidenceCollector(
 ) {
     private val appContext: Context = context.applicationContext
 
-    public fun collect(): Map<String, Any?> = linkedMapOf(
+    public fun collect(challenge: ByteArray = ByteArray(0)): Map<String, Any?> = linkedMapOf(
         "boot_state" to (readProperty("ro.boot.verifiedbootstate") ?: "unknown"),
         "selinux_enforcing" to readSelinuxEnforcing(),
         "root_detected" to detectRoot(),
@@ -21,6 +21,7 @@ public class AndroidRuntimeEvidenceCollector(
         "sdk_int" to Build.VERSION.SDK_INT,
         "build_type" to Build.TYPE,
         "build_tags" to (Build.TAGS ?: ""),
+        "native_runtime" to NativeRuntimeProbe.collect(challenge),
     )
 
     private fun isDebuggable(): Boolean =

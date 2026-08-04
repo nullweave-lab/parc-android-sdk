@@ -1,5 +1,6 @@
 package org.nullweave.parc.android.controlplane
 
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -93,7 +94,10 @@ public class ControlPlaneClient(
     ): ControlPlaneDecision {
         val token = exchangeToken(credentials)
         val challenge = issueChallenge(token, device.deviceId)
-        return submitProof(token, device, challenge, collector.collect())
+        val challengeBytes = runCatching {
+            Base64.decode(challenge.nonce, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        }.getOrElse { challenge.nonce.toByteArray(Charsets.UTF_8) }
+        return submitProof(token, device, challenge, collector.collect(challengeBytes))
     }
 
     private fun request(

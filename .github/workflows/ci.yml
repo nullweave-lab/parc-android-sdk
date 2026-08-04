@@ -12,22 +12,29 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
           java-version: "17"
+      - name: Install pinned Android NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.13"
-      - name: Test SDK and build both runnable APKs
+      - name: Test SDK and build both runnable APKs with JNI probes
         run: gradle :sdk:testDebugUnitTest :sample:assembleDebug :app:assembleDebug
-      - name: Verify APK outputs and record digests
+      - name: Verify APK outputs, JNI ABIs, and digests
         run: |
-          test -s sample/build/outputs/apk/debug/sample-debug.apk
-          test -s app/build/outputs/apk/debug/app-debug.apk
+          set -euo pipefail
+          for apk in sample/build/outputs/apk/debug/sample-debug.apk app/build/outputs/apk/debug/app-debug.apk; do
+            test -s "$apk"
+            for abi in arm64-v8a armeabi-v7a x86_64; do
+              unzip -l "$apk" | grep -q "lib/$abi/libparc_probe_jni.so"
+            done
+          done
           sha256sum sample/build/outputs/apk/debug/sample-debug.apk | tee sample-debug.apk.sha256
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app-debug.apk.sha256
       - name: Upload control-plane sample APK
