@@ -135,10 +135,16 @@ jobs:
           ! grep -q 'FAILURES!!!' instrumentation-adb.txt
       - name: Capture device-side diagnostics
         if: always()
+        shell: bash
         run: |
-          "$ANDROID_HOME/platform-tools/adb" logcat -d -v threadtime \
-            | grep -E 'PArCNativeProbeTest|InstrumentationTest|FATAL EXCEPTION|UnsatisfiedLinkError' \
-            > instrumentation-logcat.txt || true
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          if "$ADB" get-state >/dev/null 2>&1; then
+            "$ADB" logcat -d -v threadtime \
+              | grep -E 'PArCNativeProbeTest|InstrumentationTest|FATAL EXCEPTION|UnsatisfiedLinkError' \
+              > instrumentation-logcat.txt || true
+          else
+            echo 'no emulator device was started' > instrumentation-logcat.txt
+          fi
       - name: Upload instrumentation diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -156,7 +162,11 @@ jobs:
           retention-days: 7
       - name: Capture emulator diagnostics
         if: always()
+        shell: bash
         run: |
-          "$ANDROID_HOME/platform-tools/adb" shell getprop ro.build.fingerprint || true
-          "$ANDROID_HOME/platform-tools/adb" logcat -d -t 1000 || true
-          cat emulator.log || true
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          if "$ADB" get-state >/dev/null 2>&1; then
+            "$ADB" shell getprop ro.build.fingerprint || true
+            "$ADB" logcat -d -t 1000 || true
+          fi
+          cat emulator.log 2>/dev/null || true
