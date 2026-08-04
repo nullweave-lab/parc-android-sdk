@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "parc-android-sdk"
-include(":sdk", ":sample")
+include(":sdk", ":sample", ":app")
