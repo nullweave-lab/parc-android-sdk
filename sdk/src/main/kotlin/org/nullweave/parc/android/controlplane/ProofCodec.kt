@@ -11,11 +11,20 @@ public object ProofCodec {
         is Boolean, is Byte, is Short, is Int, is Long, is Float, is Double -> value.toString()
         is String -> quote(value)
         is Map<*, *> -> value.entries
-            .map { (key, child) -> require(key is String) { "JSON object keys must be strings" }; key to child }
+            .map { (key, child) ->
+                require(key is String) { "JSON object keys must be strings" }
+                key to child
+            }
             .sortedBy { it.first }
-            .joinToString(prefix = "{", postfix = "}") { (key, child) -> "${quote(key)}:${canonicalJson(child)}" }
-        is Iterable<*> -> value.joinToString(prefix = "[", postfix = "]") { canonicalJson(it) }
-        is Array<*> -> value.joinToString(prefix = "[", postfix = "]") { canonicalJson(it) }
+            .joinToString(separator = ",", prefix = "{", postfix = "}") { (key, child) ->
+                "${quote(key)}:${canonicalJson(child)}"
+            }
+        is Iterable<*> -> value.joinToString(separator = ",", prefix = "[", postfix = "]") {
+            canonicalJson(it)
+        }
+        is Array<*> -> value.joinToString(separator = ",", prefix = "[", postfix = "]") {
+            canonicalJson(it)
+        }
         else -> throw IllegalArgumentException("unsupported canonical JSON value: ${value::class.java.name}")
     }
 
