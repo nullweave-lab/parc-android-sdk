@@ -79,12 +79,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           sudo chmod 666 /dev/kvm || true
           echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd \
             --force \
             --name parc-ci \
             --package "system-images;android-35;default;x86_64" \
             --device pixel_2
+          "$ANDROID_HOME/emulator/emulator" -list-avds
           nohup "$ANDROID_HOME/emulator/emulator" \
             -avd parc-ci \
             -no-window \
@@ -94,9 +98,10 @@ jobs:
             -wipe-data \
             -gpu swiftshader_indirect \
             > emulator.log 2>&1 &
-          adb wait-for-device
+          "$ANDROID_HOME/platform-tools/adb" wait-for-device
           for attempt in $(seq 1 180); do
-            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+            if [ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              "$ANDROID_HOME/platform-tools/adb" shell input keyevent 82 || true
               exit 0
             fi
             sleep 2
@@ -104,10 +109,12 @@ jobs:
           cat emulator.log
           exit 1
       - name: Execute JNI probe in Android process
+        env:
+          PATH: ${{ env.ANDROID_HOME }}/platform-tools:${{ env.PATH }}
         run: gradle :sample:connectedDebugAndroidTest
       - name: Capture emulator diagnostics
         if: always()
         run: |
-          adb shell getprop ro.build.fingerprint || true
-          adb logcat -d -t 1000 || true
+          "$ANDROID_HOME/platform-tools/adb" shell getprop ro.build.fingerprint || true
+          "$ANDROID_HOME/platform-tools/adb" logcat -d -t 1000 || true
           cat emulator.log || true
