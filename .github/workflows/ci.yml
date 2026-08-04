@@ -112,6 +112,17 @@ jobs:
         env:
           PATH: ${{ env.ANDROID_HOME }}/platform-tools:${{ env.PATH }}
         run: gradle :sample:connectedDebugAndroidTest
+      - name: Upload instrumentation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: parc-android-emulator-jni-report
+          path: |
+            sample/build/reports/androidTests/connected
+            sample/build/outputs/androidTest-results/connected
+            emulator.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Capture emulator diagnostics
         if: always()
         run: |
