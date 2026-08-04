@@ -1,0 +1,166 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install pinned Android NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: "8.13"
+      - name: Test SDK and build both runnable APKs with JNI probes
+        run: gradle :sdk:testDebugUnitTest :sample:assembleDebug :app:assembleDebug
+      - name: Verify APK outputs, JNI ABIs, and digests
+        run: |
+          set -euo pipefail
+          for apk in sample/build/outputs/apk/debug/sample-debug.apk app/build/outputs/apk/debug/app-debug.apk; do
+            test -s "$apk"
+            for abi in arm64-v8a armeabi-v7a x86_64; do
+              unzip -l "$apk" | grep -q "lib/$abi/libparc_probe_jni.so"
+            done
+          done
+          sha256sum sample/build/outputs/apk/debug/sample-debug.apk | tee sample-debug.apk.sha256
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app-debug.apk.sha256
+      - name: Upload control-plane sample APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: parc-android-control-plane-sample-debug-apk
+          path: |
+            sample/build/outputs/apk/debug/sample-debug.apk
+            sample-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload direct Keystore demo APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: parc-android-keystore-demo-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  emulator-jni-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install pinned NDK and emulator image
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.2.12479018" \
+            "platform-tools" \
+            "emulator" \
+            "system-images;android-35;default;x86_64"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: "8.13"
+      - name: Build runnable sample APK
+        run: gradle :sample:assembleDebug
+      - name: Create and boot Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+          sudo chmod 666 /dev/kvm || true
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd \
+            --force \
+            --name parc-ci \
+            --package "system-images;android-35;default;x86_64" \
+            --device pixel_2
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          nohup "$ANDROID_HOME/emulator/emulator" \
+            -avd parc-ci \
+            -no-window \
+            -no-audio \
+            -no-boot-anim \
+            -no-snapshot \
+            -wipe-data \
+            -gpu swiftshader_indirect \
+            > emulator.log 2>&1 &
+          "$ANDROID_HOME/platform-tools/adb" wait-for-device
+          for attempt in $(seq 1 180); do
+            if [ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              "$ANDROID_HOME/platform-tools/adb" shell input keyevent 82 || true
+              exit 0
+            fi
+            sleep 2
+          done
+          cat emulator.log
+          exit 1
+      - name: Install APK and execute JNI in application process
+        shell: bash
+        run: |
+          set -euo pipefail
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          APK="sample/build/outputs/apk/debug/sample-debug.apk"
+          test -s "$APK"
+          "$ADB" install -r "$APK" | tee install-app.txt
+          "$ADB" logcat -c
+          "$ADB" shell am force-stop org.nullweave.parc.sample
+          "$ADB" shell am start -W \
+            -n org.nullweave.parc.sample/.MainActivity \
+            --ez parc_ci_native_smoke true \
+            | tee activity-start.txt
+          for attempt in $(seq 1 60); do
+            "$ADB" logcat -d -v brief \
+              | grep 'PArCNativeProbeSmoke' \
+              > jni-smoke-logcat.txt || true
+            if grep -q 'PARC_JNI_SMOKE_FAILED' jni-smoke-logcat.txt; then
+              cat jni-smoke-logcat.txt
+              exit 1
+            fi
+            if grep -q 'PARC_JNI_SMOKE_OK' jni-smoke-logcat.txt; then
+              cat jni-smoke-logcat.txt
+              exit 0
+            fi
+            sleep 1
+          done
+          "$ADB" logcat -d -v threadtime > full-logcat.txt
+          grep -E 'PArCNativeProbeSmoke|UnsatisfiedLinkError|FATAL EXCEPTION' full-logcat.txt || true
+          exit 1
+      - name: Upload emulator smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: parc-android-emulator-jni-report
+          path: |
+            install-app.txt
+            activity-start.txt
+            jni-smoke-logcat.txt
+            full-logcat.txt
+            emulator.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Capture emulator diagnostics
+        if: always()
+        shell: bash
+        run: |
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          if "$ADB" get-state >/dev/null 2>&1; then
+            "$ADB" shell getprop ro.build.fingerprint || true
+            "$ADB" logcat -d -t 1000 || true
+          fi
+          cat emulator.log 2>/dev/null || true
