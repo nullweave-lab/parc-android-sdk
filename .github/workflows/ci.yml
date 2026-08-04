@@ -9,15 +9,21 @@ permissions:
   contents: read
 
 jobs:
-  unit-test:
+  build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.13"
-      - run: gradle :sdk:testDebugUnitTest
+      - name: Test SDK and build runnable APK
+        run: gradle :sdk:testDebugUnitTest :sample:assembleDebug
+      - name: Upload path summary
+        run: |
+          test -f sample/build/outputs/apk/debug/sample-debug.apk
+          sha256sum sample/build/outputs/apk/debug/sample-debug.apk
