@@ -109,17 +109,33 @@ jobs:
           cat emulator.log
           exit 1
       - name: Execute JNI probe in Android process
+        shell: bash
         env:
           PATH: ${{ env.ANDROID_HOME }}/platform-tools:${{ env.PATH }}
-        run: gradle :sample:connectedDebugAndroidTest
+        run: |
+          set -o pipefail
+          gradle :sample:connectedDebugAndroidTest --stacktrace --info 2>&1 | tee instrumentation.log
+      - name: Capture device-side test state
+        if: always()
+        run: |
+          "$ANDROID_HOME/platform-tools/adb" shell am instrument -w \
+            org.nullweave.parc.sample.test/android.test.InstrumentationTestRunner \
+            > instrumentation-adb.txt 2>&1 || true
+          "$ANDROID_HOME/platform-tools/adb" logcat -d -v threadtime \
+            | grep -E 'PArCNativeProbeTest|AndroidJUnitRunner|InstrumentationTest|FATAL EXCEPTION|UnsatisfiedLinkError' \
+            > instrumentation-logcat.txt || true
       - name: Upload instrumentation diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: parc-android-emulator-jni-report
           path: |
-            sample/build/reports/androidTests/connected
-            sample/build/outputs/androidTest-results/connected
+            instrumentation.log
+            instrumentation-adb.txt
+            instrumentation-logcat.txt
+            sample/build/reports
+            sample/build/outputs/androidTest-results
+            sample/build/outputs/connected_android_test_additional_output
             emulator.log
           if-no-files-found: warn
           retention-days: 7
