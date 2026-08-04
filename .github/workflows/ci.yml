@@ -75,6 +75,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.13"
+      - name: Build application and instrumentation APKs
+        run: gradle :sample:assembleDebug :sample:assembleDebugAndroidTest
       - name: Create and boot Android emulator
         shell: bash
         run: |
@@ -108,21 +110,30 @@ jobs:
           done
           cat emulator.log
           exit 1
-      - name: Execute JNI probe in Android process
+      - name: Install APKs and execute JNI instrumentation directly
         shell: bash
-        env:
-          PATH: ${{ env.ANDROID_HOME }}/platform-tools:${{ env.PATH }}
         run: |
-          set -o pipefail
-          gradle :sample:connectedDebugAndroidTest --stacktrace --info 2>&1 | tee instrumentation.log
-      - name: Capture device-side test state
+          set -euo pipefail
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          APP_APK="sample/build/outputs/apk/debug/sample-debug.apk"
+          TEST_APK="sample/build/outputs/apk/androidTest/debug/sample-debug-androidTest.apk"
+          test -s "$APP_APK"
+          test -s "$TEST_APK"
+          "$ADB" install -r "$APP_APK" | tee install-app.txt
+          "$ADB" install -r "$TEST_APK" | tee install-test.txt
+          "$ADB" shell pm list instrumentation | tee instrumentation-list.txt
+          grep -q 'instrumentation:org.nullweave.parc.sample.test/android.test.InstrumentationTestRunner' instrumentation-list.txt
+          "$ADB" shell am instrument -w -r \
+            -e class org.nullweave.parc.sample.NativeProbeInstrumentationTest \
+            org.nullweave.parc.sample.test/android.test.InstrumentationTestRunner \
+            | tee instrumentation-adb.txt
+          grep -q 'OK (1 test)' instrumentation-adb.txt
+          ! grep -q 'FAILURES!!!' instrumentation-adb.txt
+      - name: Capture device-side diagnostics
         if: always()
         run: |
-          "$ANDROID_HOME/platform-tools/adb" shell am instrument -w \
-            org.nullweave.parc.sample.test/android.test.InstrumentationTestRunner \
-            > instrumentation-adb.txt 2>&1 || true
           "$ANDROID_HOME/platform-tools/adb" logcat -d -v threadtime \
-            | grep -E 'PArCNativeProbeTest|AndroidJUnitRunner|InstrumentationTest|FATAL EXCEPTION|UnsatisfiedLinkError' \
+            | grep -E 'PArCNativeProbeTest|InstrumentationTest|FATAL EXCEPTION|UnsatisfiedLinkError' \
             > instrumentation-logcat.txt || true
       - name: Upload instrumentation diagnostics
         if: always()
@@ -130,12 +141,11 @@ jobs:
         with:
           name: parc-android-emulator-jni-report
           path: |
-            instrumentation.log
+            install-app.txt
+            install-test.txt
+            instrumentation-list.txt
             instrumentation-adb.txt
             instrumentation-logcat.txt
-            sample/build/reports
-            sample/build/outputs/androidTest-results
-            sample/build/outputs/connected_android_test_additional_output
             emulator.log
           if-no-files-found: warn
           retention-days: 7
